@@ -18,8 +18,8 @@ func Load() *Config {
 	return &Config{
 		App: App{
 			Port: env("APP_PORT", "8081"),
-			Env: env("APP_ENV", "development")
-		}
+			Env: env("APP_ENV", "development"),
+		},
 	}
 }
 
