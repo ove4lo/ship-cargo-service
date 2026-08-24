@@ -3,12 +3,14 @@ package config
 import (
 	"fmt"
 	"os"
+	"time"
 )
 
 // Config represents a general configuration
 type Config struct {
 	App App
 	Postgres Postgres
+	JWT JWT
 }
 
 // App represents application's configuration
@@ -26,6 +28,12 @@ type Postgres struct {
 	DB string
 }
 
+// JWT represents jwt's configuration
+type JWT struct {
+	Secret string
+	Expiration time.Duration
+}
+
 // DSN connect to database
 func (p Postgres) DSN() string {
 	return fmt.Sprintf(
@@ -35,7 +43,13 @@ func (p Postgres) DSN() string {
 }
 
 // Load is responsible for loading the config with variables from env
-func Load() *Config {
+func Load() (*Config, error) {
+
+	jwtExp, err := time.ParseDuration(env("JWT_EXPIRATION", "24h"))
+	if err != nil {
+		return nil, fmt.Errorf("parse JWT_EXPIRATION: %w", err)
+	}
+
 	return &Config{
 		App: App{
 			Port: env("APP_PORT", "8081"),
@@ -49,7 +63,12 @@ func Load() *Config {
 			Password: env("POSTGRES_PASSWORD", "cargo_secret"),
 			DB: env("POSTGRES_DB", "ship_cargo"),
 		},
-	}
+
+		JWT: JWT{
+			Secret: env("JWT_SECRET", "your-secret-key-change-in-production"),
+			Expiration: jwtExp,
+		},
+	}, nil
 }
 
 // env is a helper: if the variable exists in the environment, we use it; otherwise, we use the default value

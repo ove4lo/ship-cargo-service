@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -9,10 +10,11 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
-	"database/sql"
 
-	"github.com/ove4lo/ship-cargo-service/internal/config"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/ove4lo/ship-cargo-service/internal/config"
+	"github.com/ove4lo/ship-cargo-service/internal/handler"
+	"github.com/ove4lo/ship-cargo-service/internal/repository"
 )
 
 func main() {
@@ -21,7 +23,11 @@ func main() {
 	}))
 	slog.SetDefault(logger)
 
-	cfg := config.Load() // NOTE: load the main configuration
+	cfg, err := config.Load() // NOTE: load the main configuration
+	if err != nil {
+		slog.Error("failed to load config", "error", err)
+		os.Exit(1)
+	}
 
 	db, err := sql.Open("pgx", cfg.Postgres.DSN()) // NOTE: connect to database
 	if err != nil {
@@ -37,6 +43,9 @@ func main() {
 
 	slog.Info("connected to postgresql")
 
+	userRepo := repository.NewUserRepository(db)
+	authHandler := handler.NewAuthHandler(userRepo, cfg.JWT.Secret, cfg.JWT.Expiration)
+
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -44,6 +53,9 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintf(w, `{"status":"ok", "env":"%s"}`, cfg.App.Env)
 	})
+
+	mux.HandleFunc("POST /register", authHandler.Register)
+	mux.HandleFunc("POST /login", authHandler.Login)
 
 	server := &http.Server{
 		Addr: ":" + cfg.App.Port,
