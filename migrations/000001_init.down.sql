@@ -1,0 +1,11 @@
+DROP TABLE IF EXISTS booking_items;
+DROP TABLE IF EXISTS bookings;
+DROP TABLE IF EXISTS voyages;
+DROP TABLE IF EXISTS vessels;
+DROP TABLE IF EXISTS users;
+
+DROP TYPE IF EXISTS item_status;
+DROP TYPE IF EXISTS booking_priority;
+DROP TYPE IF EXISTS booking_status;
+DROP TYPE IF EXISTS voyage_status;
+DROP TYPE IF EXISTS user_role;

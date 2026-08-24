@@ -9,8 +9,10 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+	"database/sql"
 
 	"github.com/ove4lo/ship-cargo-service/internal/config"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 func main() {
@@ -20,6 +22,20 @@ func main() {
 	slog.SetDefault(logger)
 
 	cfg := config.Load() // NOTE: load the main configuration
+
+	db, err := sql.Open("pgx", cfg.Postgres.DSN()) // NOTE: connect to database
+	if err != nil {
+		slog.Error("failed to open db", "error", err)
+		os.Exit(1)
+	}
+	defer db.Close()
+
+	if err := db.PingContext(context.Background()); err != nil {
+		slog.Error("failed to ping db", "error", err)
+		os.Exit(1)
+	}
+
+	slog.Info("connected to postgresql")
 
 	mux := http.NewServeMux()
 
