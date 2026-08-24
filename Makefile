@@ -1,7 +1,7 @@
 .PHONY: run test lint
 
 run:
-	go test ./... -v -race
+	go run ./cmd/api
 
 test:
 	go test ./... -v -race
