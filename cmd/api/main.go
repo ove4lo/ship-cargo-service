@@ -14,8 +14,20 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/ove4lo/ship-cargo-service/internal/config"
 	"github.com/ove4lo/ship-cargo-service/internal/handler"
+	"github.com/ove4lo/ship-cargo-service/internal/middleware"
+	"github.com/ove4lo/ship-cargo-service/internal/model"
 	"github.com/ove4lo/ship-cargo-service/internal/repository"
 )
+
+// applyMiddleware wraps an HTTP handler with a chain of middleware functions, 
+// executing them in the order they are provided.
+func applyMiddleware(h http.HandlerFunc, middlewares ...func(http.Handler) http.Handler) http.Handler {
+	var handler http.Handler = h
+	for i := len(middlewares) - 1; i >= 0; i-- {
+		handler = middlewares[i](handler)
+	}
+	return handler 
+}
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
@@ -44,7 +56,12 @@ func main() {
 	slog.Info("connected to postgresql")
 
 	userRepo := repository.NewUserRepository(db)
+	vesselRepo := repository.NewVesselRepository(db)
+	voyageRepo := repository.NewVoyageRepository(db)
+
 	authHandler := handler.NewAuthHandler(userRepo, cfg.JWT.Secret, cfg.JWT.Expiration)
+	vesselHandler := handler.NewVesselHandler(vesselRepo)
+	voyageHandler := handler.NewVoyageHandler(voyageRepo)
 
 	mux := http.NewServeMux()
 
@@ -56,6 +73,17 @@ func main() {
 
 	mux.HandleFunc("POST /register", authHandler.Register)
 	mux.HandleFunc("POST /login", authHandler.Login)
+
+	authMw := middleware.Auth(cfg.JWT.Secret)
+	managerOnly := middleware.RequireRole(string(model.RoleManager))
+
+	// Vessels - only manager
+	mux.Handle("POST /vessels", applyMiddleware(vesselHandler.Create, authMw, managerOnly))
+	mux.Handle("GET /vessels", applyMiddleware(vesselHandler.GetAll, authMw))
+
+	// Voyages - create: manager, view: all authorized users
+	mux.Handle("POST /voyages", applyMiddleware(voyageHandler.Create, authMw, managerOnly))
+	mux.Handle("GET /voyages", applyMiddleware(voyageHandler.GetAll, authMw))
 
 	server := &http.Server{
 		Addr: ":" + cfg.App.Port,
@@ -69,7 +97,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// 1. async startup of an HTTP server
+	// 1. Async startup of an HTTP server
 	go func() {
 		slog.Info("server starting", "port", cfg.App.Port)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
