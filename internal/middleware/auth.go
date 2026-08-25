@@ -69,3 +69,18 @@ func Auth(jwtSecret string) func(http.Handler) http.Handler {
 		})
 	}
 }
+
+// RequireRole — middleware for restricting access to an endpoint based on user role
+func RequireRole(role string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			userRole, ok := r.Context().Value(RoleKey).(string) // WHY: retrieves data from the context using the RoleKey key
+			if !ok || userRole != role {
+				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
