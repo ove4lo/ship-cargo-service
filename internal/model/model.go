@@ -77,6 +77,11 @@ type Voyage struct {
 	ReservedWeightKg float64 `json:"reserved_weight_kg"`
 	ReservedVolumeM3 float64 `json:"reserved_volume_m3"`
 	CreatedAt time.Time `json:"created_at"`
+
+	// Joined fields(JOIN with vessels)
+	VesselName string `json:"vessel_name,omitempty"`
+	MaxWeightKg float64 `json:"max_weight_kg,omitempty"`
+	MaxVolumeM3 float64 `json:"max_volume_m3,omitempty"`
 }
 
 // represents information of seat reservation
@@ -101,14 +106,13 @@ type BookingItem struct {
 	Status ItemStatus `json:"status"`
 }
 
-//  WHY: don't store vessel limits—they are in the vessel table
 // FreeWeightKg calculates free weight
-func (v Voyage) FreeWeightKg(maxWeight float64) float64 {
-	return maxWeight - v.ReservedWeightKg
+func (v Voyage) FreeWeightKg() float64 {
+	return v.MaxWeightKg - v.ReservedWeightKg
 }
 
 // FreeVolumeM3 calculates free volume
-func (v Voyage) FreeVolumeM3(maxVolume float64) float64 {
-	return maxVolume - v.ReservedVolumeM3
+func (v Voyage) FreeVolumeM3() float64 {
+	return v.MaxVolumeM3 - v.ReservedVolumeM3
 }
 
