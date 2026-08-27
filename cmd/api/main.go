@@ -12,6 +12,7 @@ import (
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/redis/go-redis/v9"
 	"github.com/ove4lo/ship-cargo-service/internal/config"
 	"github.com/ove4lo/ship-cargo-service/internal/handler"
 	"github.com/ove4lo/ship-cargo-service/internal/middleware"
@@ -55,6 +56,17 @@ func main() {
 	}
 
 	slog.Info("connected to postgresql")
+
+	rdb := redis.NewClient(&redis.Options{
+		Addr: cfg.Redis.Addr(),
+	})
+	if err := rdb.Ping(context.Background()).Err(); err != nil {
+		slog.Error("failed to ping redis", "error", err)
+		os.Exit(1)
+	}
+	defer rdb.Close()
+
+	slog.Info("connected to redis")
 
 	userRepo := repository.NewUserRepository(db)
 	vesselRepo := repository.NewVesselRepository(db)
