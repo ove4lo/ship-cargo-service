@@ -81,7 +81,7 @@ func (r *VoyageRepository) GetByID(ctx context.Context, id string) (*model.Voyag
 }
 
 // GetByIDForUpdate fetches a single voyage within a transaction and locks the row using FOR UPDATE.
-func (r *VoyageRepository) GetByIDForUpdate(ctx context.Context, tx *sql.Tx, id string) (*model.Voyage, error) {
+func (r *VoyageRepository) GetByIDForUpdate(ctx context.Context, tx model.Tx, id string) (*model.Voyage, error) {
 	var voy model.Voyage
 	err := tx.QueryRowContext(ctx,
 		`SELECT v.id, v.vessel_id, v.route, v.departure_date, v.status,
@@ -105,7 +105,7 @@ func (r *VoyageRepository) GetByIDForUpdate(ctx context.Context, tx *sql.Tx, id 
 }
 
 // UpdateReservedTx updates the absolute values of reserved capacity for a specific voyage within a transaction.
-func (r *VoyageRepository) UpdateReservedTx(ctx context.Context, tx *sql.Tx, id string, weightKg, volumeM3 float64) error {
+func (r *VoyageRepository) UpdateReservedTx(ctx context.Context, tx model.Tx, id string, weightKg, volumeM3 float64) error {
 	_, err := tx.ExecContext(ctx,
 		`UPDATE voyages SET reserved_weight_kg = $1, reserved_volume_m3 = $2 WHERE id = $3`,
 		weightKg, volumeM3, id,

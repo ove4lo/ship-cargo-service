@@ -76,7 +76,7 @@ func (h *BookingHandler) Create(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		switch {
-		case errors.Is(err, service.ErrorVoyageNotAvailable):
+		case errors.Is(err, service.ErrVoyageNotAvailable):
 			http.Error(w, `{"error":"voyage isn't available for booking"}`, http.StatusConflict)
 		case errors.Is(err, service.ErrNoCapacity):
 			http.Error(w, `{"error":"no capacity available"}`, http.StatusConflict)

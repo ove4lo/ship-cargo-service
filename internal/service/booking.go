@@ -7,32 +7,53 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ove4lo/ship-cargo-service/internal/lock"
 	"github.com/ove4lo/ship-cargo-service/internal/model"
-	"github.com/ove4lo/ship-cargo-service/internal/repository"
 )
 
 var (
-	// ErrorVoyageNotAvailable is returned when a voyage is not in a mockable or loadable status.
-	ErrorVoyageNotAvailable = errors.New("voyage isn't available for booking")
+	// ErrVoyageNotAvailable is returned when a voyage is not in a mockable or loadable status.
+	ErrVoyageNotAvailable = errors.New("voyage isn't available for booking")
 	// ErrNoCapacity is returned when none of the requested cargo items can fit into the remaining voyage capacity.
 	ErrNoCapacity = errors.New("no capacity available")
 	// ErrVoyageLocked is returned when another process is concurrently executing a booking operation on the same voyage.
 	ErrVoyageLocked = errors.New("voyage is being booked by another user")
 )
 
+// VoyageProvider defines the data layer interactions required to read and 
+// modify voyage records during a cargo booking process.
+type VoyageProvider interface {
+	GetByIDForUpdate(ctx context.Context, tx model.Tx, id string) (*model.Voyage, error)
+	UpdateReservedTx(ctx context.Context, tx model.Tx, id string, weightKg, volumeM3 float64) error
+}
+
+// BookingCreator defines the persistence operations needed to validate idempotency 
+// and store booking aggregates within a transaction.
+type BookingCreator interface {
+	GetByIdempotencyKey(ctx context.Context, key string) (*model.Booking, error)
+	BeginTx(ctx context.Context) (model.Tx, error)
+	CreateTx(ctx context.Context, tx model.Tx, item *model.Booking) error
+	CreateItemTx(ctx context.Context, tx model.Tx, item *model.BookingItem) error
+}
+
+// Locker defines the behavioral contract for managing distributed locks 
+// to prevent concurrent race conditions on shared domain resources.
+type Locker interface {
+	Acquire(ctx context.Context, key string, ttl time.Duration) (string, error)
+	Release(ctx context.Context, key string, token string) error
+}
+
 // BookingService orchestrates the domain business logic for cargo space allocation.
 type BookingService struct {
-	bookingRepo *repository.BookingRepository
-	voyageRepo  *repository.VoyageRepository
-	lock        *lock.RedisLock
+	bookingRepo BookingCreator
+	voyageRepo  VoyageProvider
+	lock        Locker
 }
 
 // NewBookingService constructs a new BookingService with required repositories and lock dependencies.
 func NewBookingService(
-	bookingRepo *repository.BookingRepository, 
-	voyageRepo *repository.VoyageRepository,
-	lock *lock.RedisLock,
+	bookingRepo BookingCreator, 
+	voyageRepo VoyageProvider,
+	lock Locker,
 ) *BookingService {
 	return &BookingService{
 		bookingRepo: bookingRepo,
@@ -100,7 +121,7 @@ func (s *BookingService) CreateBooking(ctx context.Context, req BookingRequest) 
 
 	// 6. Checking flight status.
 	if voyage.Status != model.VoyageStatusPlanned && voyage.Status != model.VoyageStatusLoading {
-		return nil, ErrorVoyageNotAvailable
+		return nil, ErrVoyageNotAvailable
 	}
 	
 	// 7. Placing positions.

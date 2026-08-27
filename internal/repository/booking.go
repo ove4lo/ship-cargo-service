@@ -32,7 +32,7 @@ func (r *BookingRepository) GetByIdempotencyKey(ctx context.Context, key string)
 }
 
 // CreateTx inserts a new booking record into the database within an active transaction.
-func (r *BookingRepository) CreateTx(ctx context.Context, tx *sql.Tx, booking *model.Booking) error {
+func (r *BookingRepository) CreateTx(ctx context.Context, tx model.Tx, booking *model.Booking) error {
 	return tx.QueryRowContext(ctx,
 		`INSERT INTO bookings (voyage_id, user_id, priority, status, idempotency_key)
 		 VALUES ($1, $2, $3, $4, $5)
@@ -42,7 +42,7 @@ func (r *BookingRepository) CreateTx(ctx context.Context, tx *sql.Tx, booking *m
 }
 
 // CreateItemTx inserts a specific cargo item tied to a booking within an active database transaction.
-func (r *BookingRepository) CreateItemTx(ctx context.Context, tx *sql.Tx, item *model.BookingItem) error {
+func (r *BookingRepository) CreateItemTx(ctx context.Context, tx model.Tx, item *model.BookingItem) error {
 	return tx.QueryRowContext(ctx,
 		`INSERT INTO booking_items (booking_id, description, weight_kg, volume_m3, status)
 		 VALUES ($1, $2, $3, $4, $5)
@@ -52,6 +52,6 @@ func (r *BookingRepository) CreateItemTx(ctx context.Context, tx *sql.Tx, item *
 }
 
 // BeginTx starts a new database transaction for executing atomic booking operations.
-func (r *BookingRepository) BeginTx(ctx context.Context) (*sql.Tx, error) {
+func (r *BookingRepository) BeginTx(ctx context.Context) (model.Tx, error) {
 	return r.db.BeginTx(ctx, nil)
 }
