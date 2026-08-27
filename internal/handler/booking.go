@@ -80,6 +80,8 @@ func (h *BookingHandler) Create(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, `{"error":"voyage isn't available for booking"}`, http.StatusConflict)
 		case errors.Is(err, service.ErrNoCapacity):
 			http.Error(w, `{"error":"no capacity available"}`, http.StatusConflict)
+		case errors.Is(err, service.ErrVoyageLocked):
+			http.Error(w, `{"error":"voyage is being booked, try again"}`, http.StatusConflict)
 		default:
 			http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
 		}

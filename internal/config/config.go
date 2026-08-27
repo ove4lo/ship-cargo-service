@@ -6,35 +6,30 @@ import (
 	"time"
 )
 
-// Config represents a general configuration
+// Config represents a general configuration.
 type Config struct {
-	App App
+	App      App
 	Postgres Postgres
-	JWT JWT
+	JWT      JWT
+	Redis    Redis
 }
 
-// App represents application's configuration
+// App represents application's configuration.
 type App struct {
 	Port string
-	Env string
+	Env  string
 }
 
-// Postgres represents postgres's configuration
+// Postgres represents postgres's configuration.
 type Postgres struct {
-	Host string
-	Port string
-	User string
+	Host     string
+	Port     string
+	User     string
 	Password string
-	DB string
+	DB       string
 }
 
-// JWT represents jwt's configuration
-type JWT struct {
-	Secret string
-	Expiration time.Duration
-}
-
-// DSN connect to database
+// DSN returns the data source name string for PostgreSQL connection.
 func (p Postgres) DSN() string {
 	return fmt.Sprintf(
 		"postgres://%s:%s@%s:%s/%s?sslmode=disable",
@@ -42,9 +37,25 @@ func (p Postgres) DSN() string {
 	)
 }
 
-// Load is responsible for loading the config with variables from env
-func Load() (*Config, error) {
+// JWT represents jwt's configuration.
+type JWT struct {
+	Secret     string
+	Expiration time.Duration
+}
 
+// Redis represents redis's configuration.
+type Redis struct {
+	Host string
+	Port string
+}
+
+// Addr returns the host and port joined by a colon for Redis connection.
+func (r Redis) Addr() string {
+	return r.Host + ":" + r.Port
+}
+
+// Load is responsible for loading the config with variables from env.
+func Load() (*Config, error) {
 	jwtExp, err := time.ParseDuration(env("JWT_EXPIRATION", "24h"))
 	if err != nil {
 		return nil, fmt.Errorf("parse JWT_EXPIRATION: %w", err)
@@ -53,25 +64,30 @@ func Load() (*Config, error) {
 	return &Config{
 		App: App{
 			Port: env("APP_PORT", "8081"),
-			Env: env("APP_ENV", "development"),
+			Env:  env("APP_ENV", "development"),
 		},
 
 		Postgres: Postgres{
-			Host: env("POSTGRES_HOST", "localhost"),
-			Port: env("POSTGRES_PORT", "5432"),
-			User: env("POSTGRES_USER", "cargo"),
+			Host:     env("POSTGRES_HOST", "localhost"),
+			Port:     env("POSTGRES_PORT", "5432"),
+			User:     env("POSTGRES_USER", "cargo"),
 			Password: env("POSTGRES_PASSWORD", "cargo_secret"),
-			DB: env("POSTGRES_DB", "ship_cargo"),
+			DB:       env("POSTGRES_DB", "ship_cargo"),
 		},
 
 		JWT: JWT{
-			Secret: env("JWT_SECRET", "your-secret-key-change-in-production"),
+			Secret:     env("JWT_SECRET", "your-secret-key-change-in-production"),
 			Expiration: jwtExp,
+		},
+
+		Redis: Redis{
+			Host: env("REDIS_HOST", "localhost"),
+			Port: env("REDIS_PORT", "6379"),
 		},
 	}, nil
 }
 
-// env is a helper: if the variable exists in the environment, we use it; otherwise, we use the default value
+// env is a helper: if the variable exists in the environment, we use it; otherwise, we use the default value.
 func env(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
