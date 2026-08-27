@@ -19,6 +19,7 @@ import (
 	"github.com/ove4lo/ship-cargo-service/internal/model"
 	"github.com/ove4lo/ship-cargo-service/internal/repository"
 	"github.com/ove4lo/ship-cargo-service/internal/service"
+	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -68,6 +69,15 @@ func main() {
 	defer rdb.Close()
 
 	slog.Info("connected to redis")
+
+	amqpConn, err := amqp.Dial(cfg.RabbitMQ.URL())
+	if err != nil {
+		slog.Error("failed to connect to rabbitmq", "error", err)
+		os.Exit(1)
+	}
+	defer amqpConn.Close()
+
+	slog.Info("connected to rabbitmq")
 
 	userRepo := repository.NewUserRepository(db)
 	vesselRepo := repository.NewVesselRepository(db)
