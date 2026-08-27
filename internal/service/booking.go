@@ -22,17 +22,17 @@ var (
 // VoyageProvider defines the data layer interactions required to read and 
 // modify voyage records during a cargo booking process.
 type VoyageProvider interface {
-	GetByIDForUpdate(ctx context.Context, tx *sql.Tx, id string) (*model.Voyage, error)
-	UpdateReservedTx(ctx context.Context, tx *sql.Tx, id string, weightKg, volumeM3 float64) error
+	GetByIDForUpdate(ctx context.Context, tx model.Tx, id string) (*model.Voyage, error)
+	UpdateReservedTx(ctx context.Context, tx model.Tx, id string, weightKg, volumeM3 float64) error
 }
 
 // BookingCreator defines the persistence operations needed to validate idempotency 
 // and store booking aggregates within a transaction.
 type BookingCreator interface {
 	GetByIdempotencyKey(ctx context.Context, key string) (*model.Booking, error)
-	BeginTx(ctx context.Context) (*sql.Tx, error)
-	CreateTx(ctx context.Context, tx *sql.Tx, item *model.Booking) error
-	CreateItemTx(ctx context.Context, tx *sql.Tx, item *model.BookingItem) error
+	BeginTx(ctx context.Context) (model.Tx, error)
+	CreateTx(ctx context.Context, tx model.Tx, item *model.Booking) error
+	CreateItemTx(ctx context.Context, tx model.Tx, item *model.BookingItem) error
 }
 
 // Locker defines the behavioral contract for managing distributed locks 
