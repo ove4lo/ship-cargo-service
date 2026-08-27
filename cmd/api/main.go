@@ -17,9 +17,10 @@ import (
 	"github.com/ove4lo/ship-cargo-service/internal/middleware"
 	"github.com/ove4lo/ship-cargo-service/internal/model"
 	"github.com/ove4lo/ship-cargo-service/internal/repository"
+	"github.com/ove4lo/ship-cargo-service/internal/service"
 )
 
-// applyMiddleware wraps an HTTP handler with a chain of middleware functions, 
+// applyMiddleware wraps an HTTP handler with a chain of middleware functions,
 // executing them in the order they are provided.
 func applyMiddleware(h http.HandlerFunc, middlewares ...func(http.Handler) http.Handler) http.Handler {
 	var handler http.Handler = h
@@ -58,10 +59,14 @@ func main() {
 	userRepo := repository.NewUserRepository(db)
 	vesselRepo := repository.NewVesselRepository(db)
 	voyageRepo := repository.NewVoyageRepository(db)
+	bookingRepo := repository.NewBookingRepository(db)
+
+	bookingService := service.NewBookingService(bookingRepo, voyageRepo)
 
 	authHandler := handler.NewAuthHandler(userRepo, cfg.JWT.Secret, cfg.JWT.Expiration)
 	vesselHandler := handler.NewVesselHandler(vesselRepo)
 	voyageHandler := handler.NewVoyageHandler(voyageRepo)
+	bookingHandler := handler.NewBookingHandler(bookingService)
 
 	mux := http.NewServeMux()
 
@@ -84,6 +89,9 @@ func main() {
 	// Voyages - create: manager, view: all authorized users
 	mux.Handle("POST /voyages", applyMiddleware(voyageHandler.Create, authMw, managerOnly))
 	mux.Handle("GET /voyages", applyMiddleware(voyageHandler.GetAll, authMw))
+
+	// Bookings - all authorized users
+	mux.Handle("POST /bookings", applyMiddleware(bookingHandler.Create, authMw))
 
 	server := &http.Server{
 		Addr: ":" + cfg.App.Port,
