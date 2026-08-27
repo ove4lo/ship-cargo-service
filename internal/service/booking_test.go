@@ -157,3 +157,125 @@ func TestCreateBooking_AllItemsPlaced(t *testing.T) {
 		t.Errorf("want item status %s, got %s", model.ItemStatusPlaced, booking.Items[0].Status)
 	}
 }
+
+// TestCreateBooking_PartialPlacement verifies that when a voyage has limited remaining capacity,
+// items that fit are marked as placed, while items exceeding the limits are put on the waitlist.
+func TestCreateBooking_PartialPlacement(t *testing.T) {
+	voyage := baseVoyage()
+	voyage.ReservedWeightKg = 8000 // 2000 kg remaining out of 10000
+
+	req := baseRequest()
+	req.Items = []BookingItemRequest{
+		{Description: "Light load", WeightKg: 1000, VolumeM3: 10},
+		{Description: "Heavy load", WeightKg: 5000, VolumeM3: 20},
+	}
+
+	svc := newTestService(voyage, nil, false)
+	booking, err := svc.CreateBooking(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if booking.Status != model.BookingStatusPartial {
+		t.Errorf("want status %s, got %s", model.BookingStatusPartial, booking.Status)
+	}
+
+	if booking.Items[0].Status != model.ItemStatusPlaced {
+		t.Errorf("first item: want %s, got %s", model.ItemStatusPlaced, booking.Items[0].Status)
+	}
+
+	if booking.Items[1].Status != model.ItemStatusWaitlisted {
+		t.Errorf("second item: want %s, got %s", model.ItemStatusWaitlisted, booking.Items[1].Status)
+	}
+}
+
+// TestCreateBooking_NoCapacity asserts that an error is returned if none of the requested 
+// cargo items can fit into the voyage's remaining weight capacity.
+func TestCreateBooking_NoCapacity(t *testing.T) {
+	voyage := baseVoyage()
+	voyage.ReservedWeightKg = 10000 // completely filled
+
+	svc := newTestService(voyage, nil, false)
+	_, err := svc.CreateBooking(context.Background(), baseRequest())
+
+	if !errors.Is(err, ErrNoCapacity) {
+		t.Errorf("want ErrNoCapacity, got %v", err)
+	}
+}
+
+// TestCreateBooking_VoyageDeparted ensures that cargo space cannot be allocated 
+// if the targeted voyage has already departed.
+func TestCreateBooking_VoyageDeparted(t *testing.T) {
+	voyage := baseVoyage()
+	voyage.Status = model.VoyageStatusDeparted
+
+	svc := newTestService(voyage, nil, false)
+	_, err := svc.CreateBooking(context.Background(), baseRequest())
+
+	if !errors.Is(err, ErrVoyageNotAvailable) {
+		t.Errorf("want ErrVoyageNotAvailable, got %v", err)
+	}
+}
+
+// TestCreateBooking_Idempotency verifies that sending a request with a previously processed 
+// idempotency key returns the existing booking record without calculating limits again.
+func TestCreateBooking_Idempotency(t *testing.T) {
+	existing := &model.Booking{
+		ID: "existing-001",
+		IdempotencyKey: "key-001",
+		Status: model.BookingStatusConfirmed,
+	}
+
+	svc := newTestService(baseVoyage(), existing, false)
+	booking, err := svc.CreateBooking(context.Background(), baseRequest())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if booking.ID != "existing-001" {
+		t.Errorf("want existing booking ID, got %s", booking.ID)
+	}
+}
+
+// TestCreateBooking_VoyageLocked checks that the service rejects requests with an appropriate error 
+// if a concurrent booking process holds the distributed lock for the specified voyage.
+func TestCreateBooking_VoyageLocked(t *testing.T) {
+	svc := newTestService(baseVoyage(), nil, true) // locked = true
+
+	_, err := svc.CreateBooking(context.Background(), baseRequest())
+
+	if !errors.Is(err, ErrVoyageLocked) {
+		t.Errorf("want ErrVoyageLocked, got %v", err)
+	}
+}
+
+// TestCreateBooking_VolumeLimitOnly validates that items exceeding the remaining volume constraints 
+// are correctly waitlisted, even if the voyage has ample weight capacity left.
+func TestCreateBooking_VolumeLimitOnly(t *testing.T) {
+	voyage := baseVoyage()
+	voyage.ReservedVolumeM3 = 95 // 5 m^3 remaining
+
+	req := baseRequest()
+	req.Items = []BookingItemRequest{
+		{Description: "Compact", WeightKg: 100, VolumeM3: 3},
+		{Description: "Bulky", WeightKg: 100, VolumeM3: 50},
+	}
+
+	svc := newTestService(voyage, nil, false)
+	booking, err := svc.CreateBooking(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if booking.Status != model.BookingStatusPartial {
+		t.Errorf("want status %s, got %s", model.BookingStatusPartial, booking.Status)
+	}
+
+	if booking.Items[0].Status != model.ItemStatusPlaced {
+		t.Errorf("compact item: want %s, got %s", model.ItemStatusPlaced, booking.Items[0].Status)
+	}
+
+	if booking.Items[1].Status != model.ItemStatusWaitlisted {
+		t.Errorf("bulky item: want %s, got %s", model.ItemStatusWaitlisted, booking.Items[1].Status)
+	}
+}

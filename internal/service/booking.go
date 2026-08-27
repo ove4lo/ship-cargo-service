@@ -11,8 +11,8 @@ import (
 )
 
 var (
-	// ErrorVoyageNotAvailable is returned when a voyage is not in a mockable or loadable status.
-	ErrorVoyageNotAvailable = errors.New("voyage isn't available for booking")
+	// ErrVoyageNotAvailable is returned when a voyage is not in a mockable or loadable status.
+	ErrVoyageNotAvailable = errors.New("voyage isn't available for booking")
 	// ErrNoCapacity is returned when none of the requested cargo items can fit into the remaining voyage capacity.
 	ErrNoCapacity = errors.New("no capacity available")
 	// ErrVoyageLocked is returned when another process is concurrently executing a booking operation on the same voyage.
@@ -121,7 +121,7 @@ func (s *BookingService) CreateBooking(ctx context.Context, req BookingRequest) 
 
 	// 6. Checking flight status.
 	if voyage.Status != model.VoyageStatusPlanned && voyage.Status != model.VoyageStatusLoading {
-		return nil, ErrorVoyageNotAvailable
+		return nil, ErrVoyageNotAvailable
 	}
 	
 	// 7. Placing positions.
