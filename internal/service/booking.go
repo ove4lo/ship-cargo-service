@@ -5,42 +5,60 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
+	"github.com/ove4lo/ship-cargo-service/internal/lock"
 	"github.com/ove4lo/ship-cargo-service/internal/model"
 	"github.com/ove4lo/ship-cargo-service/internal/repository"
 )
 
 var (
+	// ErrorVoyageNotAvailable is returned when a voyage is not in a mockable or loadable status.
 	ErrorVoyageNotAvailable = errors.New("voyage isn't available for booking")
+	// ErrNoCapacity is returned when none of the requested cargo items can fit into the remaining voyage capacity.
 	ErrNoCapacity = errors.New("no capacity available")
+	// ErrVoyageLocked is returned when another process is concurrently executing a booking operation on the same voyage.
+	ErrVoyageLocked = errors.New("voyage is being booked by another user")
 )
 
+// BookingService orchestrates the domain business logic for cargo space allocation.
 type BookingService struct {
 	bookingRepo *repository.BookingRepository
-	voyageRepo *repository.VoyageRepository
+	voyageRepo  *repository.VoyageRepository
+	lock        *lock.RedisLock
 }
 
-func NewBookingService(bookingRepo *repository.BookingRepository, voyageRepo *repository.VoyageRepository) *BookingService {
+// NewBookingService constructs a new BookingService with required repositories and lock dependencies.
+func NewBookingService(
+	bookingRepo *repository.BookingRepository, 
+	voyageRepo *repository.VoyageRepository,
+	lock *lock.RedisLock,
+) *BookingService {
 	return &BookingService{
 		bookingRepo: bookingRepo,
-		voyageRepo: voyageRepo,
+		voyageRepo:  voyageRepo,
+		lock:        lock,
 	}
 }
 
+// BookingRequest defines the boundaries of incoming data required to create a cargo booking.
 type BookingRequest struct {
-	VoyageID string
-	UserID string
-	Priority model.BookingPriority
+	VoyageID       string
+	UserID         string
+	Priority       model.BookingPriority
 	IdempotencyKey string
-	Items []BookingItemRequest
+	Items          []BookingItemRequest
 }
 
+// BookingItemRequest encapsulates details for an individual cargo piece inside a larger booking request.
 type BookingItemRequest struct {
 	Description string
-	WeightKg float64
-	VolumeM3 float64
+	WeightKg    float64
+	VolumeM3    float64
 }
 
+// CreateBooking safely checks idempotency, acquires a distributed lock, assesses remaining space, 
+// and stores both the booking record and item records within a database transaction.
 func (s *BookingService) CreateBooking(ctx context.Context, req BookingRequest) (*model.Booking, error) {
 	// 1. Input parameter validation
 	if req.VoyageID == "" || req.UserID == "" || len(req.Items) == 0 {
@@ -56,14 +74,22 @@ func (s *BookingService) CreateBooking(ctx context.Context, req BookingRequest) 
 		return nil, fmt.Errorf("check idempotency: %w", err)
 	}
 
-	// 3. Starting the transaction.
+	// 3. Locking in the voyage.
+	lockKey := "lock:voyage:" + req.VoyageID
+	token, err := s.lock.Acquire(ctx, lockKey, 5*time.Second)
+	if err != nil {
+		return nil, ErrVoyageLocked
+	}
+	defer s.lock.Release(ctx, lockKey, token)
+
+	// 4. Starting the transaction.
 	tx, err := s.bookingRepo.BeginTx(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback()
 
-	// 4. Receive a flight with a block.
+	// 5. Receive a flight with a block.
 	voyage, err := s.voyageRepo.GetByIDForUpdate(ctx, tx, req.VoyageID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -72,12 +98,12 @@ func (s *BookingService) CreateBooking(ctx context.Context, req BookingRequest) 
 		return nil, fmt.Errorf("get voyage: %w", err)
 	}
 
-	// 5. Checking flight status.
+	// 6. Checking flight status.
 	if voyage.Status != model.VoyageStatusPlanned && voyage.Status != model.VoyageStatusLoading {
 		return nil, ErrorVoyageNotAvailable
 	}
 	
-	// 6. Placing positions.
+	// 7. Placing positions.
 	freeWeight := voyage.FreeWeightKg()
 	freeVolume := voyage.FreeVolumeM3()
 	var addedWeight, addedVolume float64
@@ -87,8 +113,8 @@ func (s *BookingService) CreateBooking(ctx context.Context, req BookingRequest) 
 	for i, ri := range req.Items {
 		items[i] = model.BookingItem{
 			Description: ri.Description,
-			WeightKg: ri.WeightKg,
-			VolumeM3: ri.VolumeM3,
+			WeightKg:    ri.WeightKg,
+			VolumeM3:    ri.VolumeM3,
 		}
 
 		fitsWeight := addedWeight+ri.WeightKg <= freeWeight
@@ -104,23 +130,23 @@ func (s *BookingService) CreateBooking(ctx context.Context, req BookingRequest) 
 		}
 	}
 
-	// 7. Determine the booking status.
+	// 8. Determine the booking status.
 	var bookingStatus model.BookingStatus
 	switch {
 	case placedCount == 0:
-		return  nil, ErrNoCapacity
+		return nil, ErrNoCapacity
 	case placedCount == len(items):
 		bookingStatus = model.BookingStatusConfirmed
 	default:
 		bookingStatus = model.BookingStatusPartial
 	}
 
-	// 8. Save the reservation
+	// 9. Save the reservation.
 	booking := &model.Booking{
-		VoyageID: req.VoyageID,
-		UserID: req.UserID,
-		Priority: req.Priority,
-		Status: bookingStatus,
+		VoyageID:       req.VoyageID,
+		UserID:         req.UserID,
+		Priority:       req.Priority,
+		Status:         bookingStatus,
 		IdempotencyKey: req.IdempotencyKey,
 	}
 
@@ -128,7 +154,7 @@ func (s *BookingService) CreateBooking(ctx context.Context, req BookingRequest) 
 		return nil, fmt.Errorf("create booking: %w", err)
 	}
 
-	// 9. Save positions
+	// 10. Save positions.
 	for i := range items {
 		items[i].BookingID = booking.ID
 		if err := s.bookingRepo.CreateItemTx(ctx, tx, &items[i]); err != nil {
@@ -136,7 +162,7 @@ func (s *BookingService) CreateBooking(ctx context.Context, req BookingRequest) 
 		}
 	}
 
-	// 10. Update flight capacity
+	// 11. Update flight capacity.
 	if err := s.voyageRepo.UpdateReservedTx(ctx, tx,
 		voyage.ID,
 		voyage.ReservedWeightKg+addedWeight,
@@ -145,7 +171,7 @@ func (s *BookingService) CreateBooking(ctx context.Context, req BookingRequest) 
 		return nil, fmt.Errorf("update reserved: %w", err)
 	}
 
-	// 11. Commit the transaction
+	// 12. Commit the transaction.
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit: %w", err)
 	}

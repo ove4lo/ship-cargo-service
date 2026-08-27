@@ -12,13 +12,14 @@ import (
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/redis/go-redis/v9"
 	"github.com/ove4lo/ship-cargo-service/internal/config"
 	"github.com/ove4lo/ship-cargo-service/internal/handler"
+	"github.com/ove4lo/ship-cargo-service/internal/lock"
 	"github.com/ove4lo/ship-cargo-service/internal/middleware"
 	"github.com/ove4lo/ship-cargo-service/internal/model"
 	"github.com/ove4lo/ship-cargo-service/internal/repository"
 	"github.com/ove4lo/ship-cargo-service/internal/service"
+	"github.com/redis/go-redis/v9"
 )
 
 // applyMiddleware wraps an HTTP handler with a chain of middleware functions,
@@ -73,7 +74,8 @@ func main() {
 	voyageRepo := repository.NewVoyageRepository(db)
 	bookingRepo := repository.NewBookingRepository(db)
 
-	bookingService := service.NewBookingService(bookingRepo, voyageRepo)
+	voyageLock := lock.NewRedisLock(rdb)
+	bookingService := service.NewBookingService(bookingRepo, voyageRepo, voyageLock)
 
 	authHandler := handler.NewAuthHandler(userRepo, cfg.JWT.Secret, cfg.JWT.Expiration)
 	vesselHandler := handler.NewVesselHandler(vesselRepo)
