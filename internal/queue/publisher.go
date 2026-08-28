@@ -10,8 +10,9 @@ import (
 )
 
 const (
-	BookingExchange = ""
-	BookingQueue	= "booking.events"
+	BookingExchange     = "booking.events"
+	NotificationQueue	= "booking.notifications"
+	DocumentQueue       = "booking.documents"
 )
 
 // BookingEvent encapsulates the data published when a cargo booking status changes.
@@ -36,8 +37,9 @@ func NewPublisher(conn *amqp.Connection) (*Publisher, error) {
 		return nil, fmt.Errorf("open channel: %w", err)
 	}
 
-	_, err = ch.QueueDeclare(
-		BookingQueue,
+	err = ch.ExchangeDeclare(
+		BookingExchange,
+		"fanout", // each message is copied to all bound queues
 		true,  // durable
 		false, // autoDelete
 		false, // exclusive
@@ -45,7 +47,20 @@ func NewPublisher(conn *amqp.Connection) (*Publisher, error) {
 		nil,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("declare queue: %w", err)
+		return nil, fmt.Errorf("declare exchange: %w", err)
+	}
+
+	// Declare queues and bind them to the exchange
+	for _, queueName := range []string{NotificationQueue, DocumentQueue} {
+		_, err = ch.QueueDeclare(queueName, true, false, false, false, nil)
+		if err != nil {
+			return nil, fmt.Errorf("declare queue %s: %w", queueName, err)
+		}
+
+		err = ch.QueueBind(queueName, "", BookingExchange, false, nil)
+		if err != nil {
+			return nil, fmt.Errorf("bind queue %s: %w", queueName, err)
+		}
 	}
 
 	return &Publisher{ch: ch}, nil
@@ -60,7 +75,7 @@ func (p *Publisher) PublishBookingEvent(ctx context.Context, event BookingEvent)
 
 	return p.ch.PublishWithContext(ctx,
 		BookingExchange,
-		BookingQueue,
+		"", // routing key is empty for fanout
 		false, // mandatory
 		false, // immediate
 		amqp.Publishing{

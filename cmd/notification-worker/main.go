@@ -43,7 +43,7 @@ func main() {
 	defer ch.Close()
 
 	msgs, err := ch.Consume(
-		queue.BookingQueue,
+		queue.NotificationQueue,
 		"", // consumer tag - RabbitMQ generates it itself
 		false, // autoAck - off, confirm manually
 		false, // exclusive
