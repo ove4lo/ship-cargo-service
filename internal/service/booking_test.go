@@ -99,6 +99,14 @@ func (f *fakeBookingCreator) CreateItemTx(_ context.Context, _ model.Tx, item *m
 	return nil
 }
 
+// fakePublisher simulates broadcasting domain events into an in-memory test black hole.
+type fakePublisher struct{}
+
+// PublishBookingEvent simulates a successful event push to RabbitMQ by doing nothing and returning nil.
+func (f *fakePublisher) PublishBookingEvent(_ context.Context, _ BookingEvent) error {
+	return nil
+}
+
 // Tests
 
 // newTestService constructs a BookingService initialized with in-memory fake dependencies for isolated unit testing.
@@ -107,6 +115,7 @@ func newTestService(voyage *model.Voyage, existingBooking *model.Booking, locked
 		&fakeBookingCreator{existing: existingBooking},
 		&fakeVoyageProvider{voyage: voyage},
 		&fakeLocker{locked: locked},
+		&fakePublisher{},
 	)
 }
 

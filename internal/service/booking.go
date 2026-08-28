@@ -42,11 +42,29 @@ type Locker interface {
 	Release(ctx context.Context, key string, token string) error
 }
 
+// EventPublisher defines the contract for broadcasting booking-related domain events 
+// to external message brokers like RabbitMQ.
+type EventPublisher interface {
+	PublishBookingEvent(ctx context.Context, event BookingEvent) error 
+}
+
+// BookingEvent encapsulates the domain event metadata compiled immediately 
+// after a cargo booking transaction is successfully committed.
+type BookingEvent struct {
+	BookingID  string
+	VoyageID   string
+	UserID     string
+	Status     string
+	ItemCount  int
+	OccurredAt time.Time
+}
+
 // BookingService orchestrates the domain business logic for cargo space allocation.
 type BookingService struct {
 	bookingRepo BookingCreator
 	voyageRepo  VoyageProvider
 	lock        Locker
+	publisher   EventPublisher
 }
 
 // NewBookingService constructs a new BookingService with required repositories and lock dependencies.
@@ -54,11 +72,13 @@ func NewBookingService(
 	bookingRepo BookingCreator, 
 	voyageRepo VoyageProvider,
 	lock Locker,
+	publisher EventPublisher,
 ) *BookingService {
 	return &BookingService{
 		bookingRepo: bookingRepo,
 		voyageRepo:  voyageRepo,
 		lock:        lock,
+		publisher:   publisher,
 	}
 }
 
@@ -196,6 +216,16 @@ func (s *BookingService) CreateBooking(ctx context.Context, req BookingRequest) 
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit: %w", err)
 	}
+
+	// 13. Publish the event (after the commit—if it fails, the reservation is already saved).
+	_ = s.publisher.PublishBookingEvent(ctx, BookingEvent{
+		BookingID:  booking.ID,
+		VoyageID:   booking.VoyageID,
+		UserID:     booking.UserID,
+		Status:     string(booking.Status),
+		ItemCount:  len(items),
+		OccurredAt: booking.CreatedAt,
+	})
 
 	booking.Items = items
 	return booking, nil
