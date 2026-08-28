@@ -7,8 +7,12 @@ import (
 )
 
 // PublisherAdapter bridges the infrastructure queue publisher with the domain service layer interface.
+type RawPublisher interface {
+	PublishBookingEvent(ctx context.Context, event BookingEvent) error
+}
+
 type PublisherAdapter struct {
-	pub *Publisher
+	pub RawPublisher
 }
 
 // NewPublisherAdapter constructs a new instance of PublisherAdapter wrapping a raw Publisher.
