@@ -12,6 +12,10 @@ import (
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
+	amqp "github.com/rabbitmq/amqp091-go"
+	"github.com/redis/go-redis/v9"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+
 	"github.com/ove4lo/ship-cargo-service/internal/config"
 	"github.com/ove4lo/ship-cargo-service/internal/handler"
 	"github.com/ove4lo/ship-cargo-service/internal/lock"
@@ -20,8 +24,8 @@ import (
 	"github.com/ove4lo/ship-cargo-service/internal/queue"
 	"github.com/ove4lo/ship-cargo-service/internal/repository"
 	"github.com/ove4lo/ship-cargo-service/internal/service"
-	amqp "github.com/rabbitmq/amqp091-go"
-	"github.com/redis/go-redis/v9"
+	"github.com/ove4lo/ship-cargo-service/internal/metrics"
+
 )
 
 // applyMiddleware wraps an HTTP handler with a chain of middleware functions,
@@ -87,6 +91,8 @@ func main() {
 	}
 	defer publisher.Close()
 
+	metrics.Register()
+
 	userRepo := repository.NewUserRepository(db)
 	vesselRepo := repository.NewVesselRepository(db)
 	voyageRepo := repository.NewVoyageRepository(db)
@@ -108,6 +114,8 @@ func main() {
 		fmt.Fprintf(w, `{"status":"ok", "env":"%s"}`, cfg.App.Env)
 	})
 
+	mux.Handle("GET /metrics", promhttp.Handler())
+
 	mux.HandleFunc("POST /register", authHandler.Register)
 	mux.HandleFunc("POST /login", authHandler.Login)
 
@@ -126,11 +134,11 @@ func main() {
 	mux.Handle("POST /bookings", applyMiddleware(bookingHandler.Create, authMw))
 
 	server := &http.Server{
-		Addr: ":" + cfg.App.Port,
-		Handler: mux,
-		ReadTimeout: 10 * time.Second,
+		Addr:         ":" + cfg.App.Port,
+		Handler:      middleware.Metrics(mux),
+		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
-		IdleTimeout: 60 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
 
 	// NOTE: graceful application shutdown

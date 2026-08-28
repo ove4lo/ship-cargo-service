@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ove4lo/ship-cargo-service/internal/model"
+	"github.com/ove4lo/ship-cargo-service/internal/metrics"
 )
 
 var (
@@ -115,22 +116,29 @@ func (s *BookingService) CreateBooking(ctx context.Context, req BookingRequest) 
 		return nil, fmt.Errorf("check idempotency: %w", err)
 	}
 
-	// 3. Locking in the voyage.
+	// 3. Track the total duration of the booking operation upon function exit.
+	start := time.Now()
+	defer func() {
+		metrics.BookingDuration.Observe(time.Since(start).Seconds())
+	}()
+
+	// 4. Locking in the voyage.
 	lockKey := "lock:voyage:" + req.VoyageID
 	token, err := s.lock.Acquire(ctx, lockKey, 5*time.Second)
 	if err != nil {
+		metrics.LockConflicts.Inc()
 		return nil, ErrVoyageLocked
 	}
 	defer s.lock.Release(ctx, lockKey, token)
 
-	// 4. Starting the transaction.
+	// 5. Starting the transaction.
 	tx, err := s.bookingRepo.BeginTx(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback()
 
-	// 5. Receive a flight with a block.
+	// 6. Receive a flight with a block.
 	voyage, err := s.voyageRepo.GetByIDForUpdate(ctx, tx, req.VoyageID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -139,12 +147,12 @@ func (s *BookingService) CreateBooking(ctx context.Context, req BookingRequest) 
 		return nil, fmt.Errorf("get voyage: %w", err)
 	}
 
-	// 6. Checking flight status.
+	// 7. Checking flight status.
 	if voyage.Status != model.VoyageStatusPlanned && voyage.Status != model.VoyageStatusLoading {
 		return nil, ErrVoyageNotAvailable
 	}
 	
-	// 7. Placing positions.
+	// 8. Placing positions.
 	freeWeight := voyage.FreeWeightKg()
 	freeVolume := voyage.FreeVolumeM3()
 	var addedWeight, addedVolume float64
@@ -171,7 +179,7 @@ func (s *BookingService) CreateBooking(ctx context.Context, req BookingRequest) 
 		}
 	}
 
-	// 8. Determine the booking status.
+	// 9. Determine the booking status.
 	var bookingStatus model.BookingStatus
 	switch {
 	case placedCount == 0:
@@ -182,7 +190,9 @@ func (s *BookingService) CreateBooking(ctx context.Context, req BookingRequest) 
 		bookingStatus = model.BookingStatusPartial
 	}
 
-	// 9. Save the reservation.
+	metrics.BookingsTotal.WithLabelValues(string(bookingStatus)).Inc()
+
+	// 10. Save the reservation.
 	booking := &model.Booking{
 		VoyageID:       req.VoyageID,
 		UserID:         req.UserID,
@@ -195,7 +205,7 @@ func (s *BookingService) CreateBooking(ctx context.Context, req BookingRequest) 
 		return nil, fmt.Errorf("create booking: %w", err)
 	}
 
-	// 10. Save positions.
+	// 11. Save positions.
 	for i := range items {
 		items[i].BookingID = booking.ID
 		if err := s.bookingRepo.CreateItemTx(ctx, tx, &items[i]); err != nil {
@@ -203,7 +213,7 @@ func (s *BookingService) CreateBooking(ctx context.Context, req BookingRequest) 
 		}
 	}
 
-	// 11. Update flight capacity.
+	// 12. Update flight capacity.
 	if err := s.voyageRepo.UpdateReservedTx(ctx, tx,
 		voyage.ID,
 		voyage.ReservedWeightKg+addedWeight,
@@ -212,12 +222,12 @@ func (s *BookingService) CreateBooking(ctx context.Context, req BookingRequest) 
 		return nil, fmt.Errorf("update reserved: %w", err)
 	}
 
-	// 12. Commit the transaction.
+	// 13. Commit the transaction.
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit: %w", err)
 	}
 
-	// 13. Publish the event (after the commit—if it fails, the reservation is already saved).
+	// 14. Publish the event (after the commit—if it fails, the reservation is already saved).
 	_ = s.publisher.PublishBookingEvent(ctx, BookingEvent{
 		BookingID:  booking.ID,
 		VoyageID:   booking.VoyageID,
