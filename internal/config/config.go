@@ -12,6 +12,7 @@ type Config struct {
 	Postgres Postgres
 	JWT      JWT
 	Redis    Redis
+	RabbitMQ RabbitMQ
 }
 
 // App represents application's configuration.
@@ -53,6 +54,20 @@ type Redis struct {
 func (r Redis) Addr() string {
 	return r.Host + ":" + r.Port
 }
+// RabbitMQ represents rabbitmq's configuration.
+type RabbitMQ struct {
+	Host     string
+	Port     string
+	User     string
+	Password string
+}
+
+// URL returns the RabbitMQ connection URL.
+func (r RabbitMQ) URL() string {
+	return fmt.Sprintf("amqp://%s:%s@%s:%s/",
+		r.User, r.Password, r.Host, r.Port,
+	)
+}
 
 // Load is responsible for loading the config with variables from env.
 func Load() (*Config, error) {
@@ -83,6 +98,13 @@ func Load() (*Config, error) {
 		Redis: Redis{
 			Host: env("REDIS_HOST", "localhost"),
 			Port: env("REDIS_PORT", "6379"),
+		},
+
+		RabbitMQ: RabbitMQ{
+			Host:     env("RABBITMQ_HOST", "localhost"),
+			Port:     env("RABBITMQ_PORT", "5672"),
+			User:     env("RABBITMQ_USER", "guest"),
+			Password: env("RABBITMQ_PASSWORD", "guest"),
 		},
 	}, nil
 }

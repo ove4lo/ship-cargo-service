@@ -17,8 +17,10 @@ import (
 	"github.com/ove4lo/ship-cargo-service/internal/lock"
 	"github.com/ove4lo/ship-cargo-service/internal/middleware"
 	"github.com/ove4lo/ship-cargo-service/internal/model"
+	"github.com/ove4lo/ship-cargo-service/internal/queue"
 	"github.com/ove4lo/ship-cargo-service/internal/repository"
 	"github.com/ove4lo/ship-cargo-service/internal/service"
+	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -69,13 +71,29 @@ func main() {
 
 	slog.Info("connected to redis")
 
+	amqpConn, err := amqp.Dial(cfg.RabbitMQ.URL())
+	if err != nil {
+		slog.Error("failed to connect to rabbitmq", "error", err)
+		os.Exit(1)
+	}
+	defer amqpConn.Close()
+
+	slog.Info("connected to rabbitmq")
+
+	publisher, err := queue.NewPublisher(amqpConn)
+	if err != nil {
+		slog.Error("failed to create publisher", "error", err)
+		os.Exit(1)
+	}
+	defer publisher.Close()
+
 	userRepo := repository.NewUserRepository(db)
 	vesselRepo := repository.NewVesselRepository(db)
 	voyageRepo := repository.NewVoyageRepository(db)
 	bookingRepo := repository.NewBookingRepository(db)
 
 	voyageLock := lock.NewRedisLock(rdb)
-	bookingService := service.NewBookingService(bookingRepo, voyageRepo, voyageLock)
+	bookingService := service.NewBookingService(bookingRepo, voyageRepo, voyageLock, queue.NewPublisherAdapter(publisher))
 
 	authHandler := handler.NewAuthHandler(userRepo, cfg.JWT.Secret, cfg.JWT.Expiration)
 	vesselHandler := handler.NewVesselHandler(vesselRepo)
