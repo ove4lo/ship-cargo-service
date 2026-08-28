@@ -14,3 +14,6 @@ migrate-up:
 
 migrate-down:
 	migrate -path migrations -database "postgres://cargo:cargo_secret@localhost:5432/ship_cargo?sslmode=disable" down
+
+run-notification:
+	go run ./cmd/notification-worker
